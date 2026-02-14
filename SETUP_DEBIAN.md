@@ -1,41 +1,31 @@
-# 🤖 Swiss Trader — Debian Server Setup Guide
+# 🤖 EscherBot — Debian Server Setup Guide
 
-> Step-by-step instructions to deploy the trading bot and live dashboard on a Debian home server.
-
----
-
-## Prerequisites
-
-- A Debian-based server (Debian 11/12, Ubuntu 22.04+)
-- SSH access to the server
-- Python 3.9+ installed (check with `python3 --version`)
-- Git installed
+> Complete guide to running the **trading bot** (weekly cron job) and the **web dashboard** (persistent service) on a Debian home server.
 
 ---
 
-## Step 1: Transfer the Project to Your Server
+## Architecture Overview
 
-**Option A: Using Git (Recommended)**
+| Component | File | How it runs | Purpose |
+|-----------|------|-------------|---------|
+| **Trading Bot** | `swiss_trader.py` | One-shot, scheduled via **cron** | Analyzes markets, makes trades, writes weekly reports |
+| **Web Dashboard** | `dashboard.py` | Persistent, managed via **systemd** | Shows portfolio, holdings, charts, and reports on port `5050` |
+| **Portfolio State** | `portfolio.json` | Read/written by both scripts | Stores cash, holdings, trade history, and reports |
 
-If your project is on GitHub:
+---
+
+## Step 1: Get the Code on Your Server
+
 ```bash
 ssh your-user@your-server-ip
 cd ~
-git clone https://github.com/YOUR_USERNAME/EscherBot.git
+git clone https://github.com/alerx-gif/escherbot.git EscherBot
 cd EscherBot
 ```
 
-**Option B: Using SCP (Direct Copy)**
-
-From your Mac, run:
+If the repo is already cloned, just pull the latest:
 ```bash
-scp -r /Users/alejandro/Documents/my-projects/EscherBot your-user@your-server-ip:~/EscherBot
-```
-
-Then SSH into the server:
-```bash
-ssh your-user@your-server-ip
-cd ~/EscherBot
+cd ~/EscherBot && git pull
 ```
 
 ---
@@ -49,99 +39,107 @@ sudo apt install -y python3 python3-pip python3-venv
 
 ---
 
-## Step 3: Create a Virtual Environment & Install Packages
+## Step 3: Create Virtual Environment & Install Packages
 
 ```bash
+cd ~/EscherBot
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Verify everything installed:
+Verify:
 ```bash
 python3 -c "import yfinance, feedparser, flask; print('✅ All dependencies installed')"
 ```
 
 ---
 
-## Step 4: Test the Bot Manually
+## Step 4: Configure Your API Key
 
-Run a dry-run first to make sure everything works without making changes:
+Create a `.env` file with your Gemini API key:
 ```bash
-python3 swiss_trader.py --dry-run
+echo 'GEMINI_API_KEY=your-actual-api-key-here' > ~/EscherBot/.env
+chmod 600 ~/EscherBot/.env
 ```
 
-You should see output like:
+> The bot reads `GEMINI_API_KEY` from the environment. Both the cron job and systemd service will load this file.
+
+---
+
+## Step 5: Test the Bot
+
+Run a dry-run first (no trades saved):
+```bash
+cd ~/EscherBot
+export $(cat .env | xargs)
+./venv/bin/python3 swiss_trader.py --dry-run
+```
+
+You should see:
 ```
 🚀 Swiss Trader Autonomous Agent Starting...
 ⚠️ DRY RUN MODE: No changes will be saved.
 🌍 Phase 1: Market Discovery
-🔍 Scanning Yahoo Finance for market news...
-📡 Scanning RSS feeds (CNBC, Reuters, MarketWatch, Reddit)...
 ...
 ✅ Mission Complete.
 ```
 
-If it works, run it for real once:
+If everything looks good, run it for real once:
 ```bash
-python3 swiss_trader.py
+./venv/bin/python3 swiss_trader.py
 ```
 
 ---
 
-## Step 5: Set Up the Bot as a Weekly Cron Job
+## Step 6: Schedule the Trading Bot (Weekly Cron Job)
 
-The bot should run automatically once a week. Open the crontab editor:
+Open crontab:
 ```bash
 crontab -e
 ```
 
-Add this line to run the bot **every Monday at 10:00 AM EST** (15:00 UTC) when US markets are open:
+Add this line (replace `YOUR_USER` with your actual Linux username):
 ```cron
-0 15 * * 1 cd /home/YOUR_USER/EscherBot && /home/YOUR_USER/EscherBot/venv/bin/python3 swiss_trader.py >> /home/YOUR_USER/EscherBot/cron_log.txt 2>&1
+0 15 * * 1 cd /home/YOUR_USER/EscherBot && export $(cat .env | xargs) && ./venv/bin/python3 swiss_trader.py >> cron_log.txt 2>&1
 ```
 
-> ⚠️ **Replace `YOUR_USER`** with your actual Linux username.
-
 **What this does:**
-- `0 15 * * 1` — Every Monday at 15:00 UTC (10:00 AM New York time)
-- `cd /home/YOUR_USER/EscherBot` — Navigate to the project directory
-- `>> cron_log.txt 2>&1` — Append all output (including errors) to a log file
+- `0 15 * * 1` → Every **Monday at 15:00 UTC** (10:00 AM New York time, when US markets are open)
+- Loads the `.env` file for the API key
+- Appends all output to `cron_log.txt`
 
-**Verify the cron job was saved:**
+Verify it was saved:
 ```bash
 crontab -l
 ```
 
-**To check the bot's output after it runs:**
+Check output after it runs:
 ```bash
-cat ~/EscherBot/cron_log.txt
+tail -100 ~/EscherBot/cron_log.txt
 ```
 
 ---
 
-## Step 6: Set Up the Dashboard as a Background Service
+## Step 7: Set Up the Dashboard as a Persistent Service (systemd)
 
-The dashboard should run 24/7 so you can check your portfolio anytime.
-
-### Option A: Using systemd (Recommended)
-
-Create a service file:
+Create the service file:
 ```bash
-sudo nano /etc/systemd/system/swiss-trader-dashboard.service
+sudo nano /etc/systemd/system/escherbot-dashboard.service
 ```
 
-Paste this content (replace `YOUR_USER` with your username):
+Paste this (replace `YOUR_USER` with your username):
 ```ini
 [Unit]
-Description=Swiss Trader Dashboard
+Description=EscherBot Trading Dashboard
 After=network.target
 
 [Service]
 Type=simple
 User=YOUR_USER
 WorkingDirectory=/home/YOUR_USER/EscherBot
+EnvironmentFile=/home/YOUR_USER/EscherBot/.env
 ExecStart=/home/YOUR_USER/EscherBot/venv/bin/python3 dashboard.py
 Restart=always
 RestartSec=10
@@ -151,88 +149,90 @@ Environment=PYTHONUNBUFFERED=1
 WantedBy=multi-user.target
 ```
 
-Save and exit (`Ctrl+X`, then `Y`, then `Enter`).
+Save and exit (`Ctrl+X`, `Y`, `Enter`).
 
-Enable and start the service:
+Enable and start:
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable swiss-trader-dashboard
-sudo systemctl start swiss-trader-dashboard
+sudo systemctl enable escherbot-dashboard
+sudo systemctl start escherbot-dashboard
 ```
 
 Verify it's running:
 ```bash
-sudo systemctl status swiss-trader-dashboard
+sudo systemctl status escherbot-dashboard
 ```
 
-You should see `Active: active (running)`.
-
-The dashboard is now accessible at:
+You should see `Active: active (running)`. The dashboard is now live at:
 ```
 http://YOUR-SERVER-IP:5050
 ```
 
-**Useful commands:**
-```bash
-# Check status
-sudo systemctl status swiss-trader-dashboard
-
-# View live logs
-sudo journalctl -u swiss-trader-dashboard -f
-
-# Restart after code changes
-sudo systemctl restart swiss-trader-dashboard
-
-# Stop the dashboard
-sudo systemctl stop swiss-trader-dashboard
-```
-
-### Option B: Using screen (Quick & Simple)
-
-If you prefer something simpler:
-```bash
-sudo apt install screen
-screen -S dashboard
-cd ~/EscherBot
-./venv/bin/python3 dashboard.py
-```
-
-Press `Ctrl+A` then `D` to detach. The dashboard keeps running.
-
-To reattach later:
-```bash
-screen -r dashboard
-```
-
----
-
-## Step 7: Access the Dashboard from Your Network
-
-The dashboard runs on port `5050`. To access it from any device on your home network:
-
-```
-http://YOUR-SERVER-IP:5050
-```
-
-To find your server's IP address:
+Find your server IP with:
 ```bash
 hostname -I
 ```
 
-### Accessing from Outside Your Home Network (Optional)
+---
 
-If you want to check your portfolio from your phone while away:
+## Step 8: Open the Firewall (if needed)
 
-**Option A: Tailscale (Easiest)**
-1. Install Tailscale on your server: https://tailscale.com/download/linux
-2. Install Tailscale on your phone/laptop
+```bash
+sudo ufw allow 5050/tcp
+```
+
+---
+
+## Quick Reference Commands
+
+```bash
+# === TRADING BOT ===
+# Run manually (live)
+cd ~/EscherBot && export $(cat .env | xargs) && ./venv/bin/python3 swiss_trader.py
+
+# Run manually (dry-run, no trades saved)
+cd ~/EscherBot && export $(cat .env | xargs) && ./venv/bin/python3 swiss_trader.py --dry-run
+
+# Check cron log
+tail -100 ~/EscherBot/cron_log.txt
+
+# Edit cron schedule
+crontab -e
+
+# === DASHBOARD ===
+# Check status
+sudo systemctl status escherbot-dashboard
+
+# View live logs
+sudo journalctl -u escherbot-dashboard -f
+
+# Restart (after code changes)
+sudo systemctl restart escherbot-dashboard
+
+# Stop
+sudo systemctl stop escherbot-dashboard
+
+# === UPDATES ===
+# Pull latest code and restart dashboard
+cd ~/EscherBot && git pull && sudo systemctl restart escherbot-dashboard
+
+# Check portfolio state
+cat ~/EscherBot/portfolio.json | python3 -m json.tool
+```
+
+---
+
+## Accessing from Outside Your Network (Optional)
+
+**Tailscale (Easiest):**
+1. Install Tailscale on server: https://tailscale.com/download/linux
+2. Install on your phone/laptop
 3. Access via `http://YOUR-TAILSCALE-IP:5050`
 
-**Option B: Reverse Proxy with Nginx**
+**Nginx Reverse Proxy:**
 ```bash
 sudo apt install nginx
-
-sudo nano /etc/nginx/sites-available/swiss-trader
+sudo nano /etc/nginx/sites-available/escherbot
 ```
 
 Paste:
@@ -251,122 +251,22 @@ server {
 
 Enable:
 ```bash
-sudo ln -s /etc/nginx/sites-available/swiss-trader /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl restart nginx
-```
-
----
-
-## Step 8: Set Up Log Rotation (Optional but Recommended)
-
-To prevent `cron_log.txt` from growing forever:
-
-```bash
-sudo nano /etc/logrotate.d/swiss-trader
-```
-
-Paste:
-```
-/home/YOUR_USER/EscherBot/cron_log.txt {
-    weekly
-    rotate 12
-    compress
-    missingok
-    notifempty
-}
-```
-
-This keeps 12 weeks of logs and compresses old ones.
-
----
-
-## File Overview
-
-| File | Purpose |
-|------|---------|
-| `swiss_trader.py` | The trading bot — runs weekly via cron |
-| `dashboard.py` | The live web dashboard — runs 24/7 via systemd |
-| `portfolio.json` | Portfolio state (cash, holdings, trades, reports) |
-| `requirements.txt` | Python dependencies |
-| `cron_log.txt` | Bot output log (created after first cron run) |
-
----
-
-## Quick Reference Commands
-
-```bash
-# Run the bot manually
-cd ~/EscherBot && ./venv/bin/python3 swiss_trader.py
-
-# Run a dry-run (no real trades)
-cd ~/EscherBot && ./venv/bin/python3 swiss_trader.py --dry-run
-
-# Check dashboard status
-sudo systemctl status swiss-trader-dashboard
-
-# View bot cron log
-tail -100 ~/EscherBot/cron_log.txt
-
-# Check portfolio directly
-cat ~/EscherBot/portfolio.json | python3 -m json.tool
-
-# Restart dashboard after code changes
-sudo systemctl restart swiss-trader-dashboard
+sudo ln -s /etc/nginx/sites-available/escherbot /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl restart nginx
 ```
 
 ---
 
 ## Troubleshooting
 
-### Bot doesn't run via cron
-1. Check the cron log: `cat ~/EscherBot/cron_log.txt`
-2. Make sure the paths in crontab are absolute
-3. Test manually: `cd ~/EscherBot && ./venv/bin/python3 swiss_trader.py`
-
-### Dashboard not accessible
-1. Check if it's running: `sudo systemctl status swiss-trader-dashboard`
-2. Check firewall: `sudo ufw allow 5050/tcp` (if using ufw)
-3. Check the port isn't blocked: `curl http://localhost:5050`
-
-### API rate limit errors
-- The bot has built-in 60-second cooldowns between Gemini API calls
-- If you still hit limits, increase the `time.sleep(60)` values in `swiss_trader.py`
-- Consider upgrading to a paid Gemini API plan for heavier usage
-
-### yfinance errors
-- Yahoo Finance occasionally blocks requests. Wait and try again.
-- If persistent, update yfinance: `pip install --upgrade yfinance`
+| Problem | Solution |
+|---------|----------|
+| Bot doesn't run via cron | Check `cron_log.txt`. Ensure all paths are absolute. Test manually first. |
+| Dashboard not accessible | Run `sudo systemctl status escherbot-dashboard`. Check firewall with `sudo ufw allow 5050/tcp`. |
+| API rate limit errors (429) | The bot uses `gemini-2.5-flash`. Built-in cooldowns exist between API calls. If still hitting limits, increase `time.sleep()` values. |
+| yfinance errors | Yahoo Finance may temporarily block. Wait and retry, or run `pip install --upgrade yfinance`. |
+| `.env` not loading in cron | Make sure the cron line includes `export $(cat .env | xargs)` before running the script. |
 
 ---
 
-## Security Notes
-
-⚠️ **The Gemini API key is currently hardcoded in `swiss_trader.py`.**
-
-For better security, move it to an environment variable:
-
-1. Create a `.env` file:
-```bash
-echo 'GEMINI_API_KEY=your-api-key-here' > ~/EscherBot/.env
-chmod 600 ~/EscherBot/.env
-```
-
-2. Update `swiss_trader.py` line 12 to:
-```python
-API_KEY = os.environ.get("GEMINI_API_KEY", "your-fallback-key")
-```
-
-3. Update the cron job to load the env file:
-```cron
-0 15 * * 1 cd /home/YOUR_USER/EscherBot && export $(cat .env | xargs) && ./venv/bin/python3 swiss_trader.py >> cron_log.txt 2>&1
-```
-
-4. Update the systemd service to include:
-```ini
-EnvironmentFile=/home/YOUR_USER/EscherBot/.env
-```
-
----
-
-*Last updated: February 14, 2026*
+*Last updated: February 15, 2026*

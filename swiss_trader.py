@@ -669,7 +669,7 @@ def generate_weekly_report(client, portfolio_mgr, decisions, market_data, total_
     - Current Holdings: {pf['holdings']}
     - Cash: ${pf['cash']:.2f}
     - Decisions made this session: {json.dumps(decisions, indent=2)}
-    - Market data analyzed: {json.dumps([{{'ticker': d['ticker'], 'news': d['news']}} for d in market_data], indent=2)}
+    - Market data analyzed: {json.dumps([{'ticker': d['ticker'], 'news': d['news']} for d in market_data], indent=2)}
     
     Write in first person as the bot ("I"). Be conversational but professional.
     Keep it under 300 words.
