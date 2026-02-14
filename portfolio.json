@@ -1,0 +1,12 @@
+{
+    "cash": 50000.0,
+    "holdings": {},
+    "cost_basis": {},
+    "trades": [],
+    "history": [
+        {
+            "date": "2026-02-13 14:59:28.941216",
+            "total_value": 50000.0
+        }
+    ]
+}

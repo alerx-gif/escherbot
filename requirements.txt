@@ -1,0 +1,4 @@
+yfinance
+google-genai
+flask
+feedparser
