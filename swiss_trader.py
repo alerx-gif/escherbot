@@ -9,8 +9,23 @@ import feedparser
 from google import genai
 from google.genai import types
 
-# Configuration
-API_KEY = "AIzaSyAwZIshDJ-j5jTkJYhRQurqhLMYbn6PvO4"
+# Configuration — API key loaded from .env file (never commit secrets!)
+def load_env():
+    """Load environment variables from .env file."""
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, val = line.split("=", 1)
+                    os.environ[key.strip()] = val.strip()
+
+load_env()
+API_KEY = os.environ.get("GEMINI_API_KEY")
+if not API_KEY:
+    print("❌ ERROR: GEMINI_API_KEY not found. Create a .env file with: GEMINI_API_KEY=your-key-here")
+    exit(1)
 PORTFOLIO_FILE = "portfolio.json"
 STARTING_CAPITAL = 50000.0
 
