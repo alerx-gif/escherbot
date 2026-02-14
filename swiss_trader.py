@@ -216,7 +216,7 @@ class MarketScanner:
         
         try:
             response = self.client.models.generate_content(
-                model='gemini-2.0-flash',
+                model='gemini-1.5-flash',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type='application/json'
@@ -372,7 +372,7 @@ def get_trading_decisions(client, market_data_list, portfolio_state, total_portf
     
     try:
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-1.5-flash',
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type='application/json'
@@ -683,7 +683,7 @@ def generate_weekly_report(client, portfolio_mgr, decisions, market_data, total_
     
     try:
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-1.5-flash',
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type='application/json'
