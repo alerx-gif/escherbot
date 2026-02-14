@@ -84,24 +84,14 @@ UNIVERSE = [
     "NOVN.SW",# Novartis (Switzerland) - Pharma
 ]
 
-# RSS Feeds for Market Intelligence
+# RSS Feeds for Market Intelligence (keep it lean for free tier)
 RSS_FEEDS = {
-    # US Sources
     "CNBC Top News": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114",
-    "CNBC Markets": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=20910258",
     "Reuters Business": "https://feeds.reuters.com/reuters/businessNews",
     "MarketWatch Top": "https://feeds.marketwatch.com/marketwatch/topstories/",
-    "MarketWatch Stocks": "https://feeds.marketwatch.com/marketwatch/marketpulse/",
-    "Reddit r/stocks": "https://www.reddit.com/r/stocks/hot.json?limit=10",
-    "Yahoo Finance": "https://finance.yahoo.com/news/rssindex",
-    # EU / International Sources
-    "FT Markets": "https://www.ft.com/markets?format=rss",
-    "FT Companies": "https://www.ft.com/companies?format=rss",
-    "ECB Press": "https://www.ecb.europa.eu/rss/press.html",
-    "Euronews Business": "https://www.euronews.com/rss?level=theme&name=business",
+    "Reddit r/stocks": "https://www.reddit.com/r/stocks/hot.json?limit=5",
     "DW Business": "https://rss.dw.com/xml/rss-en-bus",
     "Investing.com News": "https://www.investing.com/rss/news.rss",
-    "Reddit r/eupersonalfinance": "https://www.reddit.com/r/eupersonalfinance/hot.json?limit=10",
 }
 
 class PortfolioManager:
@@ -165,7 +155,7 @@ class MarketScanner:
                 stock = yf.Ticker(ticker)
                 news = stock.news
                 if news:
-                    for n in news[:5]: # Top 5 stories per index
+                    for n in news[:3]: # Top 3 stories per index
                         title = n.get('content', {}).get('title') or n.get('title')
                         if title:
                             all_news.append(title)
@@ -188,14 +178,14 @@ class MarketScanner:
                     with urllib.request.urlopen(req, timeout=10) as resp:
                         data = json.loads(resp.read().decode())
                         posts = data.get('data', {}).get('children', [])
-                        for post in posts[:8]:
+                        for post in posts[:5]:
                             title = post.get('data', {}).get('title', '')
                             if title:
                                 all_headlines.append(f"[{source_name}] {title}")
                     continue
 
                 feed = feedparser.parse(url)
-                entries = feed.entries[:8]  # Top 8 per feed
+                entries = feed.entries[:5]  # Top 5 per feed
                 for entry in entries:
                     title = entry.get('title', '').strip()
                     if title:
@@ -250,6 +240,9 @@ class MarketScanner:
         
         # 4. Combine all headlines and send ONE batch to Gemini
         all_headlines = yf_news + rss_headlines
+        # Cap total headlines to keep Gemini prompt lean
+        if len(all_headlines) > 30:
+            all_headlines = all_headlines[:30]
         print(f"📊 Total headlines for analysis: {len(all_headlines)}")
         
         news_tickers = self.extract_tickers_from_news(all_headlines)
@@ -621,8 +614,8 @@ def main():
 
     # 4. Decision Phase
     print("🧠 Phase 4: Consulting the Brain (Gemini)...")
-    print("⏳ Waiting 60 seconds to cooldown API quota...")
-    time.sleep(60)
+    print("⏳ Waiting 90 seconds to cooldown API quota...")
+    time.sleep(90)
     decisions = get_trading_decisions(client, market_data, pm.data, total_portfolio_value)
     
     # 5. Execution Phase
@@ -641,8 +634,8 @@ def main():
         
         # 7. Generate Weekly Report
         print("📝 Phase 6: Generating Weekly Report...")
-        print("⏳ Waiting 60 seconds to cooldown API quota...")
-        time.sleep(60)
+        print("⏳ Waiting 90 seconds to cooldown API quota...")
+        time.sleep(90)
         generate_weekly_report(client, pm, executed_decisions, market_data, total_val)
         
         pm.save()
