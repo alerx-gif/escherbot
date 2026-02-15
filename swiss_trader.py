@@ -27,6 +27,7 @@ if not API_KEY:
     print("❌ ERROR: GEMINI_API_KEY not found. Create a .env file with: GEMINI_API_KEY=your-key-here")
     exit(1)
 PORTFOLIO_FILE = "portfolio.json"
+NEWS_MEMORY_FILE = "news_memory.json"
 STARTING_CAPITAL = 50000.0
 
 # ═══════════════════════════════════════════════
@@ -41,57 +42,63 @@ MIN_TRADE_VALUE = 500         # Don't bother with trades under $500
 
 # Expanded Universe for Discovery (Fallback if news yields nothing)
 UNIVERSE = [
-    # US Tech
-    "NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "AMD", "INTC", "CSCO",
-    # US Finance
-    "JPM", "BAC", "WFC", "GS", "MS", "V", "MA", "AXP",
-    # US Healthcare
-    "JNJ", "PFE", "MRK", "ABBV", "LLY", "UNH", "CVS",
-    # US Energy
-    "XOM", "CVX", "COP", "SLB", "EOG",
-    # US Consumer
-    "PG", "KO", "PEP", "WMT", "COST", "TGT",
-    # US Media/Telecom
-    "DIS", "NFLX", "CMCSA", "TMUS", "VZ", "T",
-    # EU / Swiss - Major Stocks (US-listed ADRs & tickers)
-    "SAP",    # SAP SE (Germany) - Tech
-    "ASML",   # ASML (Netherlands) - Semiconductors
-    "NVO",    # Novo Nordisk (Denmark) - Pharma
-    "AZN",    # AstraZeneca (UK) - Pharma
-    "SHEL",   # Shell (Netherlands/UK) - Energy
-    "TTE",    # TotalEnergies (France) - Energy
-    "UL",     # Unilever (UK/Netherlands) - Consumer
-    "DEO",    # Diageo (UK) - Consumer
-    "SNY",    # Sanofi (France) - Pharma
-    "STLA",   # Stellantis (Netherlands) - Auto
-    "ERIC",   # Ericsson (Sweden) - Telecom
-    "NOK",    # Nokia (Finland) - Telecom
-    "DB",     # Deutsche Bank (Germany) - Finance
-    "ING",    # ING Group (Netherlands) - Finance
-    "UBS",    # UBS (Switzerland) - Finance
-    "CS",     # Credit Suisse / successor (Switzerland)
-    "SPOT",   # Spotify (Sweden) - Tech
-    "SHOP",   # Shopify - Tech
-    "ARM",    # ARM Holdings (UK) - Semiconductors
-    "GSK",    # GSK (UK) - Pharma
-    "SIE.DE", # Siemens (Germany) - Industrial
-    "BAS.DE", # BASF (Germany) - Chemicals
-    "AIR.PA", # Airbus (France) - Aerospace
-    "OR.PA",  # L'Oréal (France) - Consumer
-    "MC.PA",  # LVMH (France) - Luxury
-    "NESN.SW",# Nestlé (Switzerland) - Consumer
-    "ROG.SW", # Roche (Switzerland) - Pharma
+    # 🇺🇸 US Tech & AI Momentum (High Beta)
+    "NVDA", "AMD", "PLTR", "TSLA", "META", "AMZN", "GOOGL", "MSFT", "CRM", "UBER",
+
+    # 🇺🇸 US High-Growth Non-Tech
+    "LLY",    # Eli Lilly (Weight loss drug leader)
+    "V",      # Visa (Fintech)
+    "COIN",   # Coinbase (Crypto proxy - very aggressive)
+    "BLK",    # BlackRock (Financial asset play)
+
+    # 🇪🇺 Europe - Tech & Industrial Leaders
+    "ASML",   # ASML (Netherlands) - Critical Semi infrastructure
+    "SAP",    # SAP (Germany) - Enterprise Software
+    "ARM",    # ARM (UK) - Chip design
+    "RHM.DE", # Rheinmetall (Germany) - Defense (Massive momentum sector)
+    "AIR.PA", # Airbus (France) - Aerospace duopoly
+    "SIE.DE", # Siemens (Germany) - Industrial automation
+    "STLA",   # Stellantis (Netherlands) - Auto (Low PE, high swing potential)
+
+    # 🇪🇺 Europe - Luxury & Consumer
+    "MC.PA",  # LVMH (France) - dominating luxury index
+    "RACE",   # Ferrari (Italy) - acts like a luxury compounded
+    "NVO",    # Novo Nordisk (Denmark) - Weight loss growth
+    "OR.PA",  # L'Oréal (France) - Consistent growth
+
+    # 🇨🇭 Switzerland - Momentum, Growth & Pharma
+    "LOGN.SW",# Logitech - Peripherals/Tech
+    "ABBN.SW",# ABB - Robotics & Automation
+    "UBSG.SW",# UBS - Finance leader
+    "KNIN.SW",# Kuehne+Nagel - Global trade barometer
+    "SIKA.SW",# Sika - Construction chemicals (Growth powerhouse)
+    "ROG.SW", # Roche (Switzerland) - Pharma (Defensive/Growth mix)
     "NOVN.SW",# Novartis (Switzerland) - Pharma
+
+    # 🌏 Global Growth ADRs
+    "TSM",    # TSMC (Taiwan) - The chip fab of the world
+    "MELI",   # MercadoLibre (LatAm) - "Amazon of Latin America"
+    "NU",     # Nu Holdings (Brazil) - High growth fintech
+    "SONY",   # Sony (Japan) - Entertainment/Tech
 ]
 
 # RSS Feeds for Market Intelligence (keep it lean for free tier)
 RSS_FEEDS = {
-    "CNBC Top News": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114",
-    "Reuters Business": "https://feeds.reuters.com/reuters/businessNews",
-    "MarketWatch Top": "https://feeds.marketwatch.com/marketwatch/topstories/",
-    "Reddit r/stocks": "https://www.reddit.com/r/stocks/hot.json?limit=5",
-    "DW Business": "https://rss.dw.com/xml/rss-en-bus",
-    "Investing.com News": "https://www.investing.com/rss/news.rss",
+    # 🇺🇸 Tech & High Growth (Excellent Metadata)
+    "TechCrunch": "https://techcrunch.com/feed/",
+    "CNBC Technology": "https://www.cnbc.com/id/19854910/device/rss/rss.html",
+    "The Verge": "https://www.theverge.com/rss/index.xml", # Very good for consumer tech (Apple/Tesla)
+
+    # 🇪🇺 European Market Movers (Good Metadata)
+    "Euronews Business": "https://www.euronews.com/rss?format=xml&level=theme&name=business",
+    "Investing.com Euro Markets": "https://www.investing.com/rss/market_overview_Technical.rss", 
+
+    # ⚡ General Market Catalysts (Reliable)
+    "Yahoo Finance Top": "https://finance.yahoo.com/news/rssindex",
+    "MarketWatch Top Stories": "http://feeds.marketwatch.com/marketwatch/topstories/", # Clean feed
+    
+    # 🇨🇭 Swiss Specific (Reliable)
+    "SwissInfo Business": "https://www.swissinfo.ch/eng/business/29452084/rss",
 }
 
 class PortfolioManager:
@@ -139,6 +146,44 @@ class PortfolioManager:
             "total_value": total_value
         })
         return total_value
+
+class NewsMemory:
+    def __init__(self, filepath):
+        self.filepath = filepath
+        self.data = self.load()
+
+    def load(self):
+        if os.path.exists(self.filepath):
+            with open(self.filepath, "r") as f:
+                return json.load(f)
+        return []
+
+    def save(self):
+        with open(self.filepath, "w") as f:
+            json.dump(self.data, f, indent=4)
+
+    def add_news(self, items):
+        """Adds new items, avoiding exact duplicates based on headline."""
+        existing_headlines = {item["headline"] for item in self.data}
+        added_count = 0
+        for item in items:
+            if item["headline"] not in existing_headlines:
+                self.data.append(item)
+                existing_headlines.add(item["headline"])
+                added_count += 1
+        
+        # Prune old news (> 7 days)
+        cutoff = datetime.datetime.now() - datetime.timedelta(days=7)
+        self.data = [
+            item for item in self.data 
+            if datetime.datetime.strptime(item["date"], "%Y-%m-%d") > cutoff
+        ]
+        return added_count
+
+    def get_high_impact_news(self, min_score=7):
+        """Returns sorted list of high impact news from the last 7 days."""
+        relevant = [item for item in self.data if item["importance"] >= min_score]
+        return sorted(relevant, key=lambda x: x["importance"], reverse=True)
 
 class MarketScanner:
     def __init__(self, client):
@@ -227,30 +272,113 @@ class MarketScanner:
             print(f"❌ Error extracting tickers from news: {e}")
             return []
 
-    def get_discovery_list(self, owned_tickers):
-        """Generates a list of tickers to analyze (Owned + News + RSS + Random Universe)."""
+        except Exception as e:
+            print(f"❌ Error extracting tickers from news: {e}")
+            return []
+
+    def update_memory(self, memory_store):
+        """Fetches today's headlines, asks Gemini to rate them, and updates memory."""
+        print("🧠 Phase 1: Updating Market Memory (Daily Routine)...")
+        
+        # 1. Gather all raw headlines
+        yf_news = self.fetch_market_news()
+        rss_headlines = self.fetch_rss_headlines()
+        all_headlines = yf_news + rss_headlines
+        
+        # Deduplicate
+        all_headlines = list(set(all_headlines))
+        if not all_headlines:
+            print("   ⚠️ No headlines found.")
+            return
+
+        print(f"   📊 Analyzing {len(all_headlines)} headlines for importance...")
+        
+        # 2. Batch process with Gemini
+        # We process in chunks of 20 to avoid token limits if list is huge
+        chunk_size = 20
+        new_items = []
+        
+        for i in range(0, len(all_headlines), chunk_size):
+            chunk = all_headlines[i:i+chunk_size]
+            prompt = f"""
+            Analyze these financial news headlines. For EACH headline:
+            1. Rate its market importance (1-10) for a SWING TRADER.
+               - 10: Huge market mover (Fed rate change, massive merger, earnings shock).
+               - 1: Irrelevant noise (opinion piece, minor fluctuation).
+            2. Extract any specific stock tickers involved (e.g. "AAPL").
+            3. Provide a 1-sentence summary of the event.
+
+            Headlines:
+            {json.dumps(chunk, indent=2)}
+
+            Output a JSON LIST of objects:
+            [
+              {{ "headline": "...", "importance": 8, "tickers": ["AAPL"], "summary": "..." }},
+              ...
+            ]
+            Return ONLY JSON.
+            """
+            
+            try:
+                response = self.client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type='application/json'
+                    )
+                )
+                batch_results = json.loads(response.text)
+                today_str = datetime.date.today().isoformat()
+                
+                for item in batch_results:
+                    # Enforce schema
+                    if "headline" in item and "importance" in item:
+                        item["date"] = today_str
+                        item["source"] = "Auto-Scanner" # placeholders for now
+                        if item["importance"] >= 6: # Only keep meaningful news
+                            new_items.append(item)
+            except Exception as e:
+                print(f"   ❌ Batch failed: {e}")
+        
+        # 3. Save to memory
+        added = memory_store.add_news(new_items)
+        memory_store.save()
+        print(f"   ✅ Memory Updated: Added {added} high-impact items. Total Memory: {len(memory_store.data)}")
+
+    def get_discovery_list(self, owned_tickers, memory_store=None):
+        """Generates a list of tickers to analyze (Owned + Memory + News + Random Universe)."""
         # 1. Always check what we own
         targets = set(owned_tickers)
         
-        # 2. Check Yahoo Finance news for hot stocks
+        # 2. Check Memory for High-Impact Tickers (Last 7 days)
+        if memory_store:
+            print("   🧠 Checking News Memory...")
+            top_stories = memory_store.get_high_impact_news(min_score=7)
+            for story in top_stories:
+                for t in story.get("tickers", []):
+                    targets.add(t)
+            print(f"      Found {len(top_stories)} high-impact stories in memory. Added relevant tickers.")
+
+        # 3. Live News Scan (Legacy/Fallback)
+        # We still do a quick scan for 'up-to-the-minute' breaking news not yet in memory
         yf_news = self.fetch_market_news()
         
-        # 3. Fetch RSS headlines from financial sites
+        # 4. Check RSS headlines (for real-time discovery)
         rss_headlines = self.fetch_rss_headlines()
         
-        # 4. Combine all headlines and send ONE batch to Gemini
+        # Combine fresh headlines
         all_headlines = yf_news + rss_headlines
-        # Cap total headlines to keep Gemini prompt lean
         if len(all_headlines) > 30:
-            all_headlines = all_headlines[:30]
-        print(f"📊 Total headlines for analysis: {len(all_headlines)}")
+            all_headlines = all_headlines[:30] # Cap for speed
+            
+        print(f"   📊 Analyzing {len(all_headlines)} live headlines...")
         
         news_tickers = self.extract_tickers_from_news(all_headlines)
         if news_tickers:
-            print(f"🧩 Gemini found interesting tickers in news: {news_tickers}")
+            print(f"      Gemini found interesting tickers in live news: {news_tickers}")
             targets.update(news_tickers)
         
-        # 5. Add random sample from Universe to keep discovering new things
+        # 5. Add sample from Universe
         needed = 15 - len(targets)
         if needed > 0:
             sample = random.sample(UNIVERSE, min(needed, len(UNIVERSE)))
@@ -258,15 +386,130 @@ class MarketScanner:
             
         return list(targets)
 
+def calculate_rsi(hist, period=14):
+    """Calculate RSI (Relative Strength Index) from price history DataFrame."""
+    if hist is None or len(hist) < period + 1:
+        return None
+    try:
+        delta = hist['Close'].diff()
+        gain = delta.where(delta > 0, 0).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        val = rsi.iloc[-1]
+        return round(float(val), 1) if not (val != val) else None  # NaN check
+    except Exception:
+        return None
+
+
+def calc_pct_change(hist):
+    """Calculate percentage change from first to last close in a history DataFrame."""
+    if hist is None or len(hist) < 2:
+        return None
+    try:
+        first = float(hist['Close'].iloc[0])
+        last = float(hist['Close'].iloc[-1])
+        if first == 0:
+            return None
+        return round(((last - first) / first) * 100, 2)
+    except Exception:
+        return None
+
+
+def format_market_cap(mc):
+    """Format market cap to human-readable string."""
+    if mc is None:
+        return None
+    if mc >= 1e12:
+        return f"${mc/1e12:.1f}T"
+    if mc >= 1e9:
+        return f"${mc/1e9:.1f}B"
+    if mc >= 1e6:
+        return f"${mc/1e6:.0f}M"
+    return f"${mc:,.0f}"
+
+
 def fetch_detailed_data(ticker):
-    """Fetches price and specific news for a single ticker."""
+    """Fetches enriched price, technical, fundamental, and news data for a single ticker."""
     try:
         stock = yf.Ticker(ticker)
-        # Fast info fetch
-        info = stock.fast_info
-        last_price = info.last_price if info.last_price else stock.history(period="1d")['Close'].iloc[-1]
-        
-        # Get specific news
+        info = stock.info or {}
+
+        # --- Price ---
+        last_price = info.get("currentPrice") or info.get("regularMarketPrice")
+        if not last_price:
+            try:
+                fi = stock.fast_info
+                last_price = fi.last_price
+            except Exception:
+                pass
+        if not last_price:
+            try:
+                last_price = float(stock.history(period="1d")['Close'].iloc[-1])
+            except Exception:
+                return None  # Can't trade without a price
+
+        # --- Price history for momentum & RSI ---
+        try:
+            hist_1mo = stock.history(period="1mo")
+        except Exception:
+            hist_1mo = None
+        try:
+            hist_5d = stock.history(period="5d")
+        except Exception:
+            hist_5d = None
+
+        # --- Volume signal ---
+        volume = info.get("volume")
+        avg_volume = info.get("averageVolume")
+        volume_ratio = None
+        if volume and avg_volume and avg_volume > 0:
+            volume_ratio = round(volume / avg_volume, 2)
+
+        # --- Technical context ---
+        fifty_day_avg = info.get("fiftyDayAverage")
+        two_hundred_day_avg = info.get("twoHundredDayAverage")
+        fifty_two_wk_high = info.get("fiftyTwoWeekHigh")
+        fifty_two_wk_low = info.get("fiftyTwoWeekLow")
+        rsi = calculate_rsi(hist_1mo)
+
+        # Price vs SMA signals
+        above_50sma = None
+        above_200sma = None
+        if last_price and fifty_day_avg:
+            above_50sma = last_price > fifty_day_avg
+        if last_price and two_hundred_day_avg:
+            above_200sma = last_price > two_hundred_day_avg
+
+        # Distance from 52-week high/low
+        pct_from_high = None
+        pct_from_low = None
+        if last_price and fifty_two_wk_high and fifty_two_wk_high > 0:
+            pct_from_high = round(((last_price - fifty_two_wk_high) / fifty_two_wk_high) * 100, 1)
+        if last_price and fifty_two_wk_low and fifty_two_wk_low > 0:
+            pct_from_low = round(((last_price - fifty_two_wk_low) / fifty_two_wk_low) * 100, 1)
+
+        # --- Fundamentals ---
+        market_cap = info.get("marketCap")
+        pe_ratio = info.get("trailingPE")
+        forward_pe = info.get("forwardPE")
+        sector = info.get("sector")
+
+        # --- Earnings date (next upcoming) ---
+        earnings_date_str = None
+        try:
+            ec = stock.calendar
+            if ec is not None:
+                if isinstance(ec, dict):
+                    ed = ec.get("Earnings Date")
+                    if ed and len(ed) > 0:
+                        earnings_date_str = str(ed[0])
+                elif hasattr(ec, 'iloc'):
+                    earnings_date_str = str(ec.iloc[0, 0]) if len(ec) > 0 else None
+        except Exception:
+            pass
+
+        # --- News ---
         news = stock.news
         top_news = []
         if news:
@@ -277,11 +520,30 @@ def fetch_detailed_data(ticker):
 
         return {
             "ticker": ticker,
-            "price": last_price,
+            "price": round(float(last_price), 2),
+            # Momentum
+            "change_5d_pct": calc_pct_change(hist_5d),
+            "change_1mo_pct": calc_pct_change(hist_1mo),
+            # Volume
+            "volume_ratio": volume_ratio,
+            # Technicals
+            "rsi_14": rsi,
+            "above_50d_sma": above_50sma,
+            "above_200d_sma": above_200sma,
+            "pct_from_52wk_high": pct_from_high,
+            "pct_from_52wk_low": pct_from_low,
+            # Fundamentals
+            "market_cap": format_market_cap(market_cap),
+            "pe_ratio": round(float(pe_ratio), 1) if pe_ratio else None,
+            "forward_pe": round(float(forward_pe), 1) if forward_pe else None,
+            "sector": sector,
+            # Catalyst
+            "next_earnings": earnings_date_str,
+            # News
             "news": top_news
         }
     except Exception as e:
-        # print(f"⚠️ Could not fetch data for {ticker}: {e}") # specific error logging can be noisy
+        print(f"   ⚠️ Could not fetch data for {ticker}: {e}")
         return None
 
 def get_trading_decisions(client, market_data_list, portfolio_state, total_portfolio_value):
@@ -350,6 +612,21 @@ def get_trading_decisions(client, market_data_list, portfolio_state, total_portf
        bargain hunting in falling knives.
     
     ════════════════════════════════
+    HOW TO USE THE TECHNICAL DATA
+    ════════════════════════════════
+    Each stock below includes technical indicators. Use them:
+    - RSI > 70 = overbought (risky to buy now), RSI < 30 = oversold (potential bounce)
+    - above_50d_sma = true means bullish short-term trend; false = bearish
+    - above_200d_sma = true means bullish long-term trend; false = bearish
+    - volume_ratio > 1.5 = unusual activity (confirms the move is real); < 0.5 = low conviction
+    - pct_from_52wk_high near 0% = at highs (momentum continuation if with volume)
+    - pct_from_52wk_low near 0% = at lows (falling knife, avoid unless clear reversal)
+    - change_5d_pct / change_1mo_pct = short-term vs medium-term momentum direction
+    - next_earnings: AVOID buying right before earnings (binary event risk)
+    - pe_ratio / forward_pe: very high P/E without growth catalyst = overvalued risk
+    - Combine signals: e.g., RSI < 40 + above 200d SMA + positive news = buy-the-dip opportunity
+    
+    ════════════════════════════════
     MARKET INTELLIGENCE
     ════════════════════════════════
     {json.dumps(market_data_list, indent=2)}
@@ -368,6 +645,7 @@ def get_trading_decisions(client, market_data_list, portfolio_state, total_portf
     
     Confidence levels: "high" (>80% sure), "medium" (50-80%), "low" (<50%).
     Only act on "high" and "medium" confidence ideas. Skip "low" confidence.
+    In your reasoning, REFERENCE the technical data (RSI, SMA, volume, momentum) — not just headlines.
     """
     
     try:
@@ -551,6 +829,7 @@ def enforce_risk_rules(portfolio_mgr, current_prices, dry_run=False):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true", help="Simulate trades without saving")
+    parser.add_argument("--update-news", action="store_true", help="Run daily news collection and exit")
     args = parser.parse_args()
 
     print(f"\n🚀 Swiss Trader Autonomous Agent Starting... [{datetime.datetime.now()}]")
@@ -560,16 +839,23 @@ def main():
     # Initialize
     client = genai.Client(api_key=API_KEY)
     pm = PortfolioManager(PORTFOLIO_FILE)
+    nm = NewsMemory(NEWS_MEMORY_FILE)
     scanner = MarketScanner(client)
+    
+    # 0. News Update Mode
+    if args.update_news:
+        scanner.update_memory(nm)
+        print("✅ Daily News Update Complete.")
+        return
     
     # 1. Discovery Phase
     print("🌍 Phase 1: Market Discovery")
-    targets = scanner.get_discovery_list(pm.get_holdings_tickers())
+    targets = scanner.get_discovery_list(pm.get_holdings_tickers(), memory_store=nm)
     
-    # Limit targets to 10 to respect token limits and quotas
-    if len(targets) > 10:
-        print(f"⚠️ Limiting analysis to top 10 tickers (from {len(targets)}) to respect API limits.")
-        targets = targets[:10]
+    # Limit targets to 20 — enriched data still fits comfortably within 250k TPM budget
+    if len(targets) > 20:
+        print(f"📏 Limiting analysis to top 20 tickers (from {len(targets)}).")
+        targets = targets[:20]
         
     print(f"📋 Target List for Analysis: {targets}")
     
@@ -614,9 +900,24 @@ def main():
 
     # 4. Decision Phase
     print("🧠 Phase 4: Consulting the Brain (Gemini)...")
-    print("⏳ Waiting 90 seconds to cooldown API quota...")
-    time.sleep(90)
+    
+    # Inject Memory Context into Decisions
+    # We fetch high impact news summary to pass to the decision prompt if we wanted to
+    # For now, we rely on the fact that we've already selected tickers based on this news
+    # But passing the explicit "Story" to the prompt would be even better.
+    # Let's do a quick fetch of memory context to print it:
+    top_stories = nm.get_high_impact_news(min_score=8)[:5]
+    if top_stories:
+        print("   📰 Top stories influencing this session:")
+        for s in top_stories:
+            print(f"      - {s['headline']} (Impact: {s['importance']})")
+    
     decisions = get_trading_decisions(client, market_data, pm.data, total_portfolio_value)
+    
+    # Save Market Mood to Portfolio
+    if "market_mood" in decisions:
+        pm.data["market_mood"] = decisions["market_mood"]
+        print(f"   🧠 Market Mood Saved: {decisions['market_mood']}")
     
     # 5. Execution Phase
     print("⚡ Phase 5: Execution")
@@ -634,8 +935,6 @@ def main():
         
         # 7. Generate Weekly Report
         print("📝 Phase 6: Generating Weekly Report...")
-        print("⏳ Waiting 90 seconds to cooldown API quota...")
-        time.sleep(90)
         generate_weekly_report(client, pm, executed_decisions, market_data, total_val)
         
         pm.save()
