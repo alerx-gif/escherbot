@@ -662,7 +662,7 @@ DASHBOARD_HTML = """
                 const dateStr = new Date(r.date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
                 const changeCls = r.change >= 0 ? 'pl-positive' : 'pl-negative';
                 const changeSign = r.change >= 0 ? '+' : '';
-                const body = r.summary.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').split('\n').filter(p => p.trim()).map(p => `<p>${p}</p>`).join('');
+                const body = r.summary.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').split('\\n').filter(p => p.trim()).map(p => `<p>${p}</p>`).join('');
                 return `<div class="report-card">
                     <div class="report-header">
                         <div class="report-title">${r.title}</div>
