@@ -42,34 +42,59 @@ def load_news_memory():
     return []
 
 def get_live_prices(tickers):
-    """Fetch current prices for a list of tickers."""
-    prices = {}
+    """Fetch current prices and day change for a list of tickers.
+       Returns: { 'TICKER': {'price': 150.0, 'prev_close': 148.0} }
+    """
+    data = {}
     if not tickers:
-        return prices
-    try:
-        # Batch fetch for speed
-        tickers_str = " ".join(tickers)
-        data = yf.download(tickers_str, period="1d", interval="1m", progress=False)
+        return data
+    
+    # We iterate individually because yf.download can be fragile
+    for ticker in tickers:
+        try:
+            stock = yf.Ticker(ticker)
+            price = None
+            prev_close = None
+            
+            # 1. Try fast_info (most reliable)
+            if hasattr(stock, 'fast_info'):
+                try:
+                    info = stock.fast_info
+                    p = info.last_price
+                    pc = info.previous_close # strict snake_case for property access usually
+                    
+                    if p is not None:
+                        price = p
+                    if pc is not None:
+                        prev_close = pc
+                except:
+                    pass
+            
+            # 2. Key Error or None? Try history (slower but fallback)
+            if price is None:
+                try:
+                    hist = stock.history(period="2d", interval="1m") # need 2d for prev close potentially
+                    if not hist.empty:
+                        price = float(hist['Close'].iloc[-1])
+                        # If we have 2 days, we might find prev close, otherwise use Open of today?
+                        # This is tricky with 1m data for just today.
+                        # Let's just trust fast_info for prev_close mostly.
+                        # For fallback, maybe just omit day change.
+                except:
+                    pass
+            
+            if price is not None:
+                data[ticker] = {
+                    'price': round(price, 2),
+                    'prev_close': round(prev_close, 2) if prev_close else None
+                }
+            else:
+                print(f"Warning: Could not fetch price for {ticker}")
+
+        except Exception as e:
+            print(f"Error fetching {ticker}: {e}")
         
-        # yf.download returns a MultiIndex DataFrame if multiple tickers
-        # or a single DataFrame if one ticker.
-        # We need to handle both cases or use Ticker.fast_info for reliability
-        
-        # Fallback to individual Ticker approach if download is complex to parse safely in one go without pandas deep knowledge
-        # Actually, let's stick to the previous reliable method for now to avoid pandas version issues
-        for ticker in tickers:
-             try:
-                stock = yf.Ticker(ticker)
-                # fast_info is usually faster and reliable for current price
-                info = stock.fast_info
-                if info.last_price:
-                    prices[ticker] = round(info.last_price, 2)
-             except:
-                 pass
-    except Exception as e:
-        print(f"Error fetching prices: {e}")
-        
-    return prices
+    return data
 
 DASHBOARD_HTML = """
 <!DOCTYPE html>
@@ -142,6 +167,10 @@ DASHBOARD_HTML = """
                     <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
                     <span class="text-gray-400">System Online</span>
                 </div>
+                <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-900 border border-gray-800">
+                    <span class="text-gray-500 font-bold">S&P 500:</span>
+                    <span id="sp500-val" class="font-mono text-gray-300">Loading...</span>
+                </div>
                 <div id="last-update" class="text-gray-500 font-mono text-xs">Waiting...</div>
             </div>
         </div>
@@ -188,12 +217,32 @@ DASHBOARD_HTML = """
             </div>
             
             <!-- Market Mood -->
-            <div class="glass-panel p-6 rounded-xl border border-gray-800 flex flex-col justify-center items-center text-center">
-                <div class="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-3">AI Market Mood</div>
-                <div id="market-mood-badge" class="px-4 py-2 rounded-lg font-bold text-lg border mood-neutral w-full">
-                    NEUTRAL
+            <div class="glass-panel p-6 rounded-xl border border-gray-800 flex flex-col relative overflow-hidden">
+                <div class="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2 z-10 flex items-center justify-between">
+                    AI Market Mood
+                    <span id="mood-icon" class="text-lg">🤖</span>
                 </div>
-                <div class="text-[10px] text-gray-500 mt-2">Based on news sentiment analysis</div>
+                
+                <div class="z-10 flex flex-col h-full">
+                    <div id="mood-primary" class="text-2xl font-bold mb-2 tracking-tight">NEUTRAL</div>
+                    <div class="relative flex-grow">
+                        <p id="mood-desc" class="text-xs text-gray-400 leading-relaxed overflow-y-auto max-h-[100px] scroll-hide">
+                            Analysis pending...
+                        </p>
+                    </div>
+                </div>
+                
+                <!-- Background Glow -->
+                <div id="mood-glow" class="absolute -right-4 -top-4 w-32 h-32 rounded-full opacity-10 blur-2xl bg-purple-500 transition-colors duration-700"></div>
+            </div>
+            
+             <!-- Alpha / Performance -->
+            <div class="glass-panel p-6 rounded-xl border border-gray-800 flex flex-col justify-center items-center text-center relative overflow-hidden">
+                <div class="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2">Alpha vs S&P 500</div>
+                <div id="alpha-val" class="text-3xl font-bold font-mono text-white">--</div>
+                <div id="alpha-badge" class="mt-2 text-xs font-bold px-2 py-1 rounded bg-gray-800 text-gray-400">
+                    --
+                </div>
             </div>
         </div>
 
@@ -235,8 +284,9 @@ DASHBOARD_HTML = """
                                     <th class="px-6 py-3 font-medium text-right">Shares</th>
                                     <th class="px-6 py-3 font-medium text-right">Avg Cost</th>
                                     <th class="px-6 py-3 font-medium text-right">Price</th>
+                                    <th class="px-6 py-3 font-medium text-right">Day Chg</th>
+                                    <th class="px-6 py-3 font-medium text-right">% Port</th>
                                     <th class="px-6 py-3 font-medium text-right">P&L</th>
-                                    <th class="px-6 py-3 font-medium text-center">Action</th>
                                 </tr>
                             </thead>
                             <tbody id="holdings-list" class="divide-y divide-gray-800 text-gray-300">
@@ -262,7 +312,7 @@ DASHBOARD_HTML = """
                 
                 <!-- Performance Chart -->
                 <div class="glass-panel rounded-xl border border-gray-800 overflow-hidden p-6">
-                    <h2 class="font-semibold text-gray-200 mb-4 flex items-center gap-2"><span class="text-xl">📈</span> Performance History</h2>
+                    <h2 class="font-semibold text-gray-200 mb-4 flex items-center gap-2"><span class="text-xl">📈</span> Performance vs Benchmark</h2>
                     <div class="h-64 w-full">
                         <canvas id="historyChart"></canvas>
                     </div>
@@ -357,30 +407,68 @@ DASHBOARD_HTML = """
 
         function renderHistoryChart(history) {
              const ctx = document.getElementById('historyChart').getContext('2d');
+             
+             // Normalize to % change from start
+             if (!history.length) return;
+             
+             const startVal = history[0].total_value;
+             let startSP = history[0].sp500 || 0;
+             
+             // Find first valid SP500 value if missing in first record
+             if (!startSP) {
+                 const firstWithSP = history.find(h => h.sp500);
+                 if (firstWithSP) startSP = firstWithSP.sp500;
+             }
+
              const labels = history.map(h => new Date(h.date).toLocaleDateString());
-             const data = history.map(h => h.total_value);
+             
+             const dataPortfolio = history.map(h => ((h.total_value - startVal) / startVal) * 100);
+             const dataSP500 = history.map(h => {
+                 if (!h.sp500 || !startSP) return 0; // or null
+                 return ((h.sp500 - startSP) / startSP) * 100;
+             });
+
+             // Calculate Alpha (latest)
+             const lastP = dataPortfolio[dataPortfolio.length - 1] || 0;
+             const lastS = dataSP500[dataSP500.length - 1] || 0;
+             const alpha = lastP - lastS;
+             
+             document.getElementById('alpha-val').textContent = fmtPct(alpha);
+             document.getElementById('alpha-val').className = `text-3xl font-bold font-mono ${alpha >= 0 ? 'text-green-400' : 'text-red-400'}`;
+             
+             const badge = document.getElementById('alpha-badge');
+             badge.textContent = alpha >= 0 ? 'OUTPERFORMING' : 'UNDERPERFORMING';
+             badge.className = `mt-2 text-[10px] font-bold px-2 py-0.5 rounded tracking-wider ${alpha >= 0 ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`;
              
              if (histChart) histChart.destroy();
-             
-             // Gradient
-             const grad = ctx.createLinearGradient(0,0,0,400);
-             grad.addColorStop(0, 'rgba(59, 130, 246, 0.2)');
-             grad.addColorStop(1, 'rgba(59, 130, 246, 0)');
 
              histChart = new Chart(ctx, {
                  type: 'line',
                  data: {
                      labels: labels,
-                     datasets: [{
-                         label: 'Portfolio Value',
-                         data: data,
-                         borderColor: '#3B82F6',
-                         backgroundColor: grad,
-                         fill: true,
-                         tension: 0.4,
-                         pointRadius: 2,
-                         borderWidth: 2
-                     }]
+                     datasets: [
+                        {
+                             label: 'My Portfolio (%)',
+                             data: dataPortfolio,
+                             borderColor: '#3B82F6',
+                             backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                             fill: true,
+                             tension: 0.4,
+                             pointRadius: 3,
+                             borderWidth: 2
+                         },
+                         {
+                             label: 'S&P 500 (%)',
+                             data: dataSP500,
+                             borderColor: '#6B7280', // Gray
+                             borderDash: [5, 5],
+                             backgroundColor: 'transparent',
+                             fill: false,
+                             tension: 0.4,
+                             pointRadius: 0,
+                             borderWidth: 2
+                         }
+                     ]
                  },
                  options: {
                      responsive: true,
@@ -388,29 +476,60 @@ DASHBOARD_HTML = """
                      interaction: { intersect: false, mode: 'index' },
                      scales: {
                          x: { display: false },
-                         y: { grid: { color: '#1f2937' }, ticks: { color: '#6b7280' } }
+                         y: { 
+                             grid: { color: '#1f2937' }, 
+                             ticks: { color: '#9ca3af', callback: (v) => v + '%' } 
+                         }
                      },
                      plugins: {
-                         legend: { display: false }
+                         legend: { display: true, labels: { color: '#9ca3af', font: { size: 10 } } },
+                         tooltip: { 
+                             callbacks: { label: (ctx) => ctx.dataset.label + ': ' + ctx.raw.toFixed(2) + '%' }
+                         }
                      }
                  }
              });
         }
 
         function updateMood(mood) {
-            const el = document.getElementById('market-mood-badge');
-            el.textContent = mood.toUpperCase();
+            const primaryEl = document.getElementById('mood-primary');
+            const descEl = document.getElementById('mood-desc');
+            const glowEl = document.getElementById('mood-glow');
+            const iconEl = document.getElementById('mood-icon');
             
-            // Reset classes
-            el.className = 'px-4 py-2 rounded-lg font-bold text-lg border w-full transition-all duration-300';
+            descEl.textContent = mood;
             
             const m = mood.toLowerCase();
-            if (m.includes('bull')) el.classList.add('mood-bullish');
-            else if (m.includes('bear')) el.classList.add('mood-bearish');
-            else el.classList.add('mood-neutral');
+            let colorClass = 'text-purple-400';
+            let bgClass = 'bg-purple-500';
+            let status = 'NEUTRAL';
+            let icon = '⚖️';
+            
+            if (m.includes('bull')) {
+                colorClass = 'text-green-400';
+                bgClass = 'bg-green-500';
+                status = 'BULLISH';
+                icon = '🚀';
+            } else if (m.includes('bear')) {
+                colorClass = 'text-red-400';
+                bgClass = 'bg-red-500';
+                status = 'BEARISH';
+                icon = '🐻';
+            } else if (m.includes('uncertain') || m.includes('mixed')) {
+                status = 'UNCERTAIN';
+                icon = '🤔';
+            }
+            
+            primaryEl.className = `text-2xl font-bold mb-2 tracking-tight ${colorClass}`;
+            primaryEl.textContent = status;
+            
+            iconEl.textContent = icon;
+            
+            // Remove old bg classes and add new one
+            glowEl.className = `absolute -right-4 -top-4 w-32 h-32 rounded-full opacity-10 blur-2xl transition-colors duration-700 ${bgClass}`;
         }
 
-        function renderHoldings(holdings) {
+        function renderHoldings(holdings, totalValue) {
             const container = document.getElementById('holdings-list');
             if (!holdings.length) {
                 container.innerHTML = `<tr><td colspan="6" class="px-6 py-8 text-center text-gray-500">
@@ -423,6 +542,9 @@ DASHBOARD_HTML = """
             container.innerHTML = holdings.map(h => {
                 const plColor = h.pl >= 0 ? 'text-green-400' : 'text-red-400';
                 const plBg = h.pl >= 0 ? 'bg-green-500/10' : 'bg-red-500/10';
+                const pctPort = totalValue > 0 ? (h.market_value / totalValue) * 100 : 0;
+                
+                const dayChgColor = h.day_change_pct >= 0 ? 'text-green-400' : 'text-red-400';
                 
                 return `<tr class="hover:bg-gray-800/30 transition-colors">
                     <td class="px-6 py-4">
@@ -431,16 +553,13 @@ DASHBOARD_HTML = """
                     <td class="px-6 py-4 text-right font-mono text-gray-300">${h.shares}</td>
                     <td class="px-6 py-4 text-right font-mono text-gray-400">${fmtMoney(h.avg_cost)}</td>
                     <td class="px-6 py-4 text-right font-mono text-gray-200">${fmtMoney(h.current_price)}</td>
+                    <td class="px-6 py-4 text-right font-mono ${dayChgColor}">${fmtPct(h.day_change_pct)}</td>
+                    <td class="px-6 py-4 text-right font-mono text-gray-300">${fmtPct(pctPort)}</td>
                     <td class="px-6 py-4 text-right">
                         <div class="flex flex-col items-end">
                             <span class="${plColor} font-bold font-mono">${fmtMoney(h.pl)}</span>
                             <span class="${plColor} text-xs">${fmtPct(h.pl_pct)}</span>
                         </div>
-                    </td>
-                    <td class="px-6 py-4 text-center">
-                        <button class="text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 px-3 py-1 rounded transition-colors" title="Simulation Only">
-                            Force Sell
-                        </button>
                     </td>
                 </tr>`;
             }).join('');
@@ -570,10 +689,16 @@ DASHBOARD_HTML = """
                 document.getElementById('cash-val').textContent = fmtMoney(data.cash);
                 document.getElementById('invested-val').textContent = fmtMoney(data.invested_value);
                 document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+                
+                if (data.sp500_price) {
+                    document.getElementById('sp500-val').textContent = fmtMoney(data.sp500_price);
+                } else {
+                    document.getElementById('sp500-val').textContent = "--";
+                }
 
                 renderAllocationChart(data.cash, data.invested_value);
                 updateMood(data.market_mood || 'Neutral');
-                renderHoldings(data.holdings);
+                renderHoldings(data.holdings, data.total_value);
                 renderTrades(data.trades);
                 renderNews(data.news_memory);
                 renderHistoryChart(data.history || []);
@@ -603,7 +728,13 @@ def api_portfolio():
     news_memory = load_news_memory()
     
     tickers = list(portfolio["holdings"].keys())
-    prices = get_live_prices(tickers)
+    # Add S&P 500 to fetch list
+    tickers_to_fetch = tickers + ["^GSPC"]
+    live_data = get_live_prices(tickers_to_fetch)
+    
+    # Extract S&P 500 data
+    sp500_info = live_data.get("^GSPC", {})
+    sp500_price = sp500_info.get('price', 0)
     
     holdings_data = []
     total_invested = 0
@@ -612,20 +743,25 @@ def api_portfolio():
     for ticker, shares in portfolio["holdings"].items():
         if shares <= 0: continue
         
-        current_price = prices.get(ticker, 0)
-        # If fetch failed, use stored cost basis per share as fallback (not ideal but avoids 0)
-        # Or just show 0
+        info = live_data.get(ticker, {})
+        current_price = info.get('price', 0)
+        prev_close = info.get('prev_close', None)
         
         cost_basis_total = portfolio.get("cost_basis", {}).get(ticker, 0)
         avg_cost = cost_basis_total / shares
         
-        # If current price is 0 (fetch failed), fallback to avg_cost to hide scary -100%
+        # If fetch failed, fallback
         if current_price == 0:
             current_price = avg_cost 
 
         market_val = shares * current_price
         pl = market_val - cost_basis_total
         pl_pct = (pl / cost_basis_total) * 100 if cost_basis_total > 0 else 0
+        
+        # Day Change Calculation
+        day_change_pct = 0
+        if prev_close and prev_close > 0:
+            day_change_pct = ((current_price - prev_close) / prev_close) * 100
         
         holdings_data.append({
             "ticker": ticker,
@@ -634,7 +770,8 @@ def api_portfolio():
             "current_price": current_price,
             "market_value": market_val,
             "pl": pl,
-            "pl_pct": pl_pct
+            "pl_pct": pl_pct,
+            "day_change_pct": day_change_pct
         })
         
         total_invested += market_val
@@ -652,7 +789,8 @@ def api_portfolio():
         "market_mood": portfolio.get("market_mood", "Neutral"),
         "news_memory": news_memory,
         "history": portfolio.get("history", []),
-        "reports": portfolio.get("reports", [])
+        "reports": portfolio.get("reports", []),
+        "sp500_price": sp500_price
     }
     
     return jsonify(response)

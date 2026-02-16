@@ -7,3 +7,4 @@ cron_log.txt
 *.md
 news_memory.json
 portfolio.json
+debug_*.py

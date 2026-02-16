@@ -6,6 +6,7 @@ import random
 import argparse
 import yfinance as yf
 import feedparser
+import pandas as pd
 from google import genai
 from google.genai import types
 
@@ -141,10 +142,28 @@ class PortfolioManager:
             # If price unavailable, use last known value implies risk, 
             # but for now we skip or assume 0 change (not implemented here for brevity)
 
-        self.data["history"].append({
+        # Basic record
+        record = {
             "date": str(datetime.datetime.now()),
             "total_value": total_value
-        })
+        }
+
+        # Fetch S&P 500 for benchmarking
+        try:
+            sp500 = yf.Ticker("^GSPC")
+            # fast_info is reliable for indices too
+            sp_val = sp500.fast_info.last_price
+            if sp_val:
+                record["sp500"] = round(sp_val, 2)
+            else:
+                # Fallback to history if fast_info fails (sometimes happens with indices)
+                hist = sp500.history(period="1d")
+                if not hist.empty:
+                    record["sp500"] = round(float(hist['Close'].iloc[-1]), 2)
+        except Exception as e:
+            print(f"⚠️ Failed to fetch S&P 500 for benchmark: {e}")
+
+        self.data["history"].append(record)
         return total_value
 
 class NewsMemory:
@@ -267,10 +286,32 @@ class MarketScanner:
                     response_mime_type='application/json'
                 )
             )
-            return json.loads(response.text)
-        except Exception as e:
-            print(f"❌ Error extracting tickers from news: {e}")
-            return []
+            tickers = json.loads(response.text)
+            
+            # Validate tickers to prevent hallucinations
+            valid_tickers = []
+            for t in tickers:
+                # Basic cleaning
+                t = t.strip().upper()
+                # Remove common false positives
+                if len(t) > 6 or " " in t:
+                    continue
+                    
+                # Verify with yfinance
+                try:
+                    # Quick check using fast_info or info
+                    stock = yf.Ticker(t)
+                    # fast_info.last_price is usually a quick way to check if it exists
+                    if stock.fast_info.last_price is not None:
+                        valid_tickers.append(t)
+                    else:
+                        print(f"   ⚠️ Discarding invalid ticker: {t}")
+                except Exception:
+                    # If fast_info fails, it might be invalid
+                    print(f"   ⚠️ Discarding invalid ticker: {t}")
+                    continue
+            
+            return valid_tickers
 
         except Exception as e:
             print(f"❌ Error extracting tickers from news: {e}")
@@ -391,14 +432,29 @@ def calculate_rsi(hist, period=14):
     if hist is None or len(hist) < period + 1:
         return None
     try:
+        # Check if we have enough data
+        if len(hist) < period + 1:
+             return None
+
+        # Calculate using Wilder's Smoothing (standard RSI)
         delta = hist['Close'].diff()
-        gain = delta.where(delta > 0, 0).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        rs = gain / loss
+        
+        # Get initial values
+        gain = delta.clip(lower=0)
+        loss = -1 * delta.clip(upper=0)
+        
+        # Wilder's smoothing using ewm
+        # alpha = 1/period for Wilder's, which corresponds to com = period - 1
+        avg_gain = gain.ewm(com=period-1, adjust=False, min_periods=period).mean()
+        avg_loss = loss.ewm(com=period-1, adjust=False, min_periods=period).mean()
+        
+        rs = avg_gain / avg_loss
         rsi = 100 - (100 / (1 + rs))
+        
         val = rsi.iloc[-1]
         return round(float(val), 1) if not (val != val) else None  # NaN check
-    except Exception:
+    except Exception as e:
+        print(f"RSI Calc Error: {e}")
         return None
 
 
@@ -518,9 +574,28 @@ def fetch_detailed_data(ticker):
                 if title:
                     top_news.append(title)
 
+        # --- Generate Technical Summary ---
+        tech_summary = "Neutral"
+        if rsi is not None:
+            if rsi > 70:
+                tech_summary = f"Overbought (RSI {rsi})"
+            elif rsi < 30:
+                tech_summary = f"Oversold (RSI {rsi})"
+            else:
+                tech_summary = f"Neutral (RSI {rsi})"
+        
+        trend = "Unknown Trend"
+        if above_50sma is True:
+            trend = "Uptrend (Price > 50d SMA)"
+        elif above_50sma is False:
+            trend = "Downtrend (Price < 50d SMA)"
+            
+        final_summary = f"{tech_summary} in a {trend}."
+
         return {
             "ticker": ticker,
             "price": round(float(last_price), 2),
+            "technical_summary": final_summary,
             # Momentum
             "change_5d_pct": calc_pct_change(hist_5d),
             "change_1mo_pct": calc_pct_change(hist_1mo),
@@ -575,9 +650,23 @@ def get_trading_decisions(client, market_data_list, portfolio_state, total_portf
     Your goal is to OUTPERFORM the S&P 500 by finding high-conviction momentum plays.
     
     ════════════════════════════════
+    CRITICAL: THE "PRICED IN" CHECK
+    ════════════════════════════════
+    Financial news is often retrospective. By the time it hits the feed, HFT algorithms have likely already moved the price.
+    For every decision, you must evaluate:
+    1. **Expectation vs. Reality:** Was this news *expected* by the market? 
+       - If "Good News" was expected and the price already rallied, do NOT buy (it's priced in).
+       - Only BUY if the news is a POSITIVE SURPRISE (better than consensus).
+    2. **Price Reaction:** Look at the technicals (Change 5d/1mo). 
+       - If news is good but price is down, the market hates the details -> DO NOT BUY.
+       - If news is bad but price is holding up, the market is resilient -> BULLISH SIGNAL.
+
+    ════════════════════════════════
     YOUR TRADING PHILOSOPHY
     ════════════════════════════════
-    - You are GROWTH-ORIENTED and willing to take CALCULATED risks for higher returns.
+    - **Contrarian Edge:** We make money on the *delta* between expectation and reality.
+    - **Growth-Oriented:** We want momentum, but only *fresh* momentum.
+    - **Catalyst Specific:** Identify the *future* catalyst. If the event just passed (e.g., earnings yesterday), the move might be over.
     - You look for stocks with STRONG CATALYSTS: earnings beats, sector momentum, 
       breakout patterns, analyst upgrades, new product launches, M&A activity.
     - You are NOT a passive index investor. You actively hunt for 5-20% swing trades.
